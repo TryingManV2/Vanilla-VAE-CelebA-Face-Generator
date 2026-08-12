@@ -19,6 +19,7 @@ This repository provides a clean, modular pipeline with β‑annealing, checkpoi
 - [Training Results (Proof of Concept)](#training-results-proof-of-concept)
 - [Model Architecture](#model-architecture)
 - [Troubleshooting](#troubleshooting)
+- [Note!](#mote)
 - [License](#license)
 
 ---
@@ -173,10 +174,14 @@ Valid  -> Loss: 0.1604  Recon: 0.0304  KL: 259.8838
 
 If you are wondering why the reconstruction loss is lower on the validation set, this is because Dropout is turned off and BatchNorm uses its running statistics during evaluation, producing a cleaner and more stable forward pass. The raw KL loss can also be lower during validation because the encoder produces slightly different latent distribution parameters when these regularization layers are disabled. However, the total validation loss is higher because our validation β is fixed at a larger value than the early training β, placing much greater weight on the KL term.
 
-For meaningful results, we recommend training for **at least 50–100 epochs**.
+For meaningful results, I recommend training for **at least 50–100 epochs**.
 The current implementation is fully functional and ready for longer runs on more powerful hardware.
 
-*Sample reconstructions and generated images from the 1‑epoch run are available in the `outputs/samples/` folder.*
+*Sample reconstructions and generated images from the 1‑epoch run are available in the `outputs/samples/` folder or see below.*
+
+<p align="center">
+  <img src="./outputs/samples/recon_epoch_001.png" width="900" alt="Images from the 1‑epoch run">
+</p>
 
 ---
 
@@ -197,6 +202,10 @@ The current implementation is fully functional and ready for longer runs on more
 | **NaN losses** | Try lowering `learning_rate` or increasing `beta`. |
 
 ---
+
+## 🚨 Note!
+The best_model.pt in ./checkpoints is not the best, it is the 1-epoch model!
+You have to train that for more epochs for realistic image generation.
 
 ## 📄 License
 This project is open‑source and available under the MIT License.
