@@ -78,7 +78,6 @@ class VAE(nn.Module):
 
         # KL = -0.5 * sum(1 + log_var - mu^2 - exp(log_var))
         # Sum over latent dimensions, then average over batch.
-        # Typical values: start ~1000, end ~50–200.
         kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp(), dim=1)
         kl_loss = kl_loss.mean()  # scalar
 
