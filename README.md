@@ -15,6 +15,7 @@ This repository provides a clean, modular pipeline with β‑annealing, checkpoi
   - [Training from YAML config](#training-from-yaml-config)
   - [Custom Dataset Path](#custom-dataset-path)
 - [Configuration Parameters](#configuration-parameters)
+- [KL Annealing Modes](#kl-annealing-modes)
 - [Outputs](#outputs)
 - [Training Results (Proof of Concept)](#training-results-proof-of-concept)
 - [Model Architecture](#model-architecture)
@@ -26,9 +27,11 @@ This repository provides a clean, modular pipeline with β‑annealing, checkpoi
 
 ## ✨ Features
 - **β‑VAE** loss with KL annealing for better disentanglement.
+- **Optional capacity annealing** – a more robust alternative to raw β‑weighting (Burgess et al., 2018) that targets a specific KL "capacity" instead of a fixed loss weight.
+- **KL plateau monitoring** – automatically warns you if the KL term stalls after annealing finishes, so a too‑weak β doesn't go unnoticed over a long run.
 - **Dynamic encoder/decoder** – automatically adapts to image size and hidden dimensions.
 - **Dataset caching** – specify a custom download location for the CelebA dataset.
-- **Checkpointing** – saves the best model based on validation loss.
+- **Checkpointing** – saves the best model based on validation reconstruction loss (`val_recon`), tracked consistently across the entire run.
 - **Reconstruction samples** – saved every epoch for visual monitoring.
 - **Final generation** – produces new images from random latent vectors.
 - **YAML support** – easily change hyperparameters without touching code.
@@ -97,7 +100,12 @@ train(
     img_size=128,
     latent_dim=128,
     beta=0.0005,
-    learning_rate=1e-3
+    learning_rate=1e-3,
+    # optional: only needed if you want capacity annealing instead of raw beta
+    use_capacity_annealing=False,
+    capacity_target=25.0,
+    capacity_anneal_epochs=40,
+    capacity_gamma=100.0
 )
 ```
 
@@ -120,6 +128,17 @@ latent_dim: 128
 hidden_dims: [32, 64, 128, 256, 512]
 learning_rate: 1e-3
 beta: 0.0005
+
+# KL plateau monitoring (leave defaults unless you know you want to change them)
+kl_plateau_check_start: 25
+kl_plateau_window: 10
+kl_plateau_min_drop_frac: 0.05
+
+# Optional capacity-annealing mode (off by default — see "KL Annealing Modes" below)
+use_capacity_annealing: False
+capacity_target: 25.0
+capacity_anneal_epochs: 40
+capacity_gamma: 100.0
 ```
 Then run:
 ```python
@@ -152,12 +171,51 @@ If you already have the dataset cached elsewhere, point `cache_dir` to that loca
 | `latent_dim`       | int      | `128`                  | Dimensionality of the latent space. |
 | `hidden_dims`      | list     | `[32,64,128,256,512]`  | Channels in each encoder/decoder layer. |
 | `learning_rate`    | float    | `1e-3`                 | Adam learning rate. |
-| `beta`             | float    | `0.0005`               | KL divergence weight (β‑VAE). Annealed during first 20 epochs. |
+| `beta`             | float    | `0.0005`               | KL divergence weight (β‑VAE). Linearly annealed from 0 up to this value over the first 20 epochs. Used for the training loss; validation always uses the full target value so `val_loss` is comparable across epochs. |
+| `kl_plateau_check_start` | int | `25`                | First epoch to start checking whether `val_kl` has plateaued (should be a few epochs after annealing finishes). |
+| `kl_plateau_window`      | int | `10`                | Number of epochs back to compare against when checking for a KL plateau. |
+| `kl_plateau_min_drop_frac` | float | `0.05`            | Minimum relative drop in `val_kl` required over the window to *not* be flagged as a plateau. |
+| `use_capacity_annealing` | bool | `False`             | Switches the loss from raw β‑weighting to KL capacity annealing (see [KL Annealing Modes](#kl-annealing-modes)). |
+| `capacity_target`       | float | `25.0`               | Target KL "capacity" (in nats) the model is allowed to use once annealing finishes. Only used when `use_capacity_annealing=True`. |
+| `capacity_anneal_epochs`| int   | `40`                 | Number of epochs to linearly ramp the allowed capacity from 0 to `capacity_target`. |
+| `capacity_gamma`        | float | `100.0`              | Fixed weight applied to `\|KL - capacity\|`. Kept large and constant, unlike β. |
+
+> **Note on `beta` vs. image size / latent dimension:** the reconstruction term is averaged per-pixel while the KL term is summed over latent dimensions, so `beta=0.0005` was tuned specifically for `img_size=128` and `latent_dim=128`. If you change either of those, you may need to re-tune `beta` (or switch to `use_capacity_annealing`, which is more portable across configurations).
+
+---
+
+## 🎛️ KL Annealing Modes
+
+This repo supports two ways of weighting the KL term, plus an automatic health check that helps you decide between them.
+
+### 1. Standard β‑annealing (default)
+`total_loss = recon_loss + beta * kl_loss`
+
+`beta` is linearly ramped from 0 up to its target value over the first 20 epochs to avoid posterior collapse early in training. This is simple and works well once `beta` is tuned for your specific `img_size`/`latent_dim`, but the right value has to be found empirically and doesn't automatically transfer if you change the architecture.
+
+### 2. Capacity annealing (optional, `use_capacity_annealing: True`)
+`total_loss = recon_loss + capacity_gamma * |kl_loss - capacity|`
+
+Instead of weighting KL indirectly with `beta`, this directly tells the model how much information (`capacity`, in nats) it's allowed to encode in the latent space, and ramps that allowance up over `capacity_anneal_epochs`. `capacity_gamma` stays large and fixed throughout training. This tends to be more robust across different image sizes and latent dimensions, at the cost of two new hyperparameters (`capacity_target`, `capacity_gamma`) that also need some tuning for your dataset.
+
+**Use standard β‑annealing by default.** Only switch to capacity annealing if the automatic KL plateau check below flags a problem, or if you're experimenting with different `latent_dim`/`img_size` combinations and don't want to re-tune `beta` each time.
+
+### KL plateau warning
+Starting at epoch `kl_plateau_check_start` (default 25, a few epochs after β‑annealing ends at epoch 20), training checks whether `val_kl` has dropped by at least `kl_plateau_min_drop_frac` (default 5%) over the last `kl_plateau_window` epochs (default 10). If it hasn't, a one-time warning is printed:
+
+```
+⚠️  WARNING: val_kl has not meaningfully decreased over the last 10 epochs (...).
+    The KL term may be too weak to regularize a 128-dim latent space at current beta=0.0005.
+    Consider: (a) increasing `beta`, (b) enabling `use_capacity_annealing=True`,
+    or (c) reducing `latent_dim`.
+```
+
+**This warning is informational only — nothing switches automatically.** If you see it, stop the run, adjust the relevant parameter, and restart. Training will continue on the original settings if you ignore it.
 
 ---
 
 ## 📂 Outputs
-- **Checkpoints**: `./checkpoints/best_model.pt` – the model state dict with the lowest validation loss.
+- **Checkpoints**: `./checkpoints/best_model.pt` – the model state dict with the lowest validation reconstruction loss (`val_recon`), tracked with a single consistent metric across the whole run (no metric switching mid-training). The checkpoint dict also stores `val_kl` and which loss mode (`use_capacity_annealing`) produced it.
 - **Reconstruction grids**: `./outputs/samples/recon_epoch_XXX.png` – top row original, bottom row reconstructed.
 - **Final generation**: `./outputs/samples/generated_final.png` – 16 new faces sampled from the prior.
 
@@ -188,7 +246,7 @@ The current implementation is fully functional and ready for longer runs on more
 ## 🧠 Model Architecture
 - **Encoder**: 5 convolutional layers (stride 2) with BatchNorm and LeakyReLU, followed by two linear layers for `mu` and `log_var`.
 - **Decoder**: Linear projection to encoder’s final spatial size, then 5 transposed convolutional layers (stride 2) with BatchNorm and LeakyReLU, and a final Tanh activation.
-- **Loss**: MSE reconstruction loss + β × KL divergence (with annealing).
+- **Loss**: MSE reconstruction loss + either (a) β × KL divergence with β‑annealing (default), or (b) γ × |KL − capacity| with capacity annealing (optional, see [KL Annealing Modes](#kl-annealing-modes)).
 
 ---
 
@@ -200,12 +258,24 @@ The current implementation is fully functional and ready for longer runs on more
 | **Dataset download slow** | Set `cache_dir` to a fast local drive. |
 | **Device not found** | The script automatically detects CUDA, MPS, or CPU. Ensure PyTorch is installed with proper CUDA support. |
 | **NaN losses** | Try lowering `learning_rate` or increasing `beta`. |
+| **`val_kl` stays high / doesn't drop after epoch ~20** | You'll see a `⚠️ KL plateau` warning in the console. Increase `beta`, or set `use_capacity_annealing: True` and tune `capacity_target`. |
+| **Reported `val_loss` looks much higher than `train_loss` early in training** | Expected — training uses the currently annealed `beta` (starts near 0), while validation always uses the full target `beta` so `val_loss` is comparable across epochs. This gap shrinks as annealing completes (~epoch 20). |
+| **LR reduction never seems to trigger, or triggers too early** | The scheduler watches `val_recon` with `patience=5`. If annealing is still ramping β when the patience window elapses, you may see a premature LR cut. Consider increasing `patience` or waiting until β‑annealing finishes before judging plateaus. |
 
 ---
 
 ## 🚨 Note!
 The best_model.pt in ./checkpoints is not the best, it is the 1-epoch model!
 You have to train that for more epochs for realistic image generation.
+
+---
+
+## 🧾 Changelog
+
+- **Fixed** a bug where the LR-reduction log message referenced undefined variables (`lr_before`/`lr_after` instead of `before_lr`/`after_lr`), which would crash the training loop as soon as the scheduler reduced the LR.
+- **Fixed** checkpoint/model selection to use a single consistent metric (`val_recon`) for the entire run, instead of switching between `val_recon` and `val_loss` partway through — avoids comparing two differently-scaled quantities and either false "new best" saves or missed improvements.
+- **Added** automatic KL plateau detection that warns (once) if `val_kl` fails to meaningfully decrease after β‑annealing finishes.
+- **Added** optional capacity-annealing loss mode (`use_capacity_annealing`) as a more portable alternative to tuning raw `beta` by hand.
 
 ## 📄 License
 This project is open‑source and available under the MIT License.
