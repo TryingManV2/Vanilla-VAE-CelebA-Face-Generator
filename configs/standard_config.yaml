@@ -14,3 +14,14 @@ latent_dim: 128
 hidden_dims: [32, 64, 128, 256, 512]
 learning_rate: 1e-3
 beta: 0.0005
+clip_grad: True
+clip_grad: False
+
+kl_plateau_check_start: 25
+kl_plateau_window: 10
+kl_plateau_min_drop_frac: 0.05
+
+use_capacity_annealing: False
+capacity_target: 25.0
+capacity_anneal_epochs: 40
+capacity_gamma: 100.0
