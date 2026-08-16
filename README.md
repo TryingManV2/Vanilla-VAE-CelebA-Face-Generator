@@ -245,14 +245,20 @@ The current implementation is fully functional and ready for longer runs on more
 
 <p align="center">
   <img src="./outputs/samples/recon_epoch_001.png" width="900" alt="Images from the 1‑epoch run">
+  <br>
+  <sub>Images from the 1‑epoch run</sub>
 </p>
 
 <p align="center">
   <img src="./outputs/samples/recon_epoch_002.png" width="900" alt="Images from the 2‑epoch run">
+  <br>
+  <sub>Images from the 2‑epoch run</sub>
 </p>
 
 <p align="center">
   <img src="./outputs/samples/recon_epoch_003.png" width="900" alt="Images from the 3‑epoch run">
+  <br>
+  <sub>Images from the 3‑epoch run</sub>
 </p>
 ---
 
