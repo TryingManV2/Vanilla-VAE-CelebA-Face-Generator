@@ -223,24 +223,37 @@ Starting at epoch `kl_plateau_check_start` (default 25, a few epochs after β‑
 
 ## 📊 Training Results (Proof of Concept)
 
-Due to hardware constraints, this model was trained for **only 1 epoch** on a **Google T4 GPU** as a PoC.
+Due to hardware constraints, this model was trained for **0.3 of train and val dataset** and **only 3 epoch** on a **Google T4 GPU** as a PoC.
 With this limited training, the network begins to learn basic facial structures but does not produce high‑quality reconstructions or realistic generations yet.
 
 **Observed losses after 1 epoch**:
-Train  -> Loss: 0.0508  Recon: 0.0437  KL: 282.6719
-Valid  -> Loss: 0.1604  Recon: 0.0304  KL: 259.8838
+Train  -> Loss: 0.0671  Recon: 0.0601  KL: 279.2805
+Valid  -> Loss: 0.1830  Recon: 0.0401  KL: 285.7573
+**Observed losses after 2 epoch**:
+Train  -> Loss: 0.0533  Recon: 0.0418  KL: 230.2637
+Valid  -> Loss: 0.1466  Recon: 0.0352  KL: 222.8022
+**Observed losses after 3 epoch**:
+Train  -> Loss: 0.0543  Recon: 0.0399  KL: 191.3656
+Valid  -> Loss: 0.1250  Recon: 0.0335  KL: 183.0876
 
 If you are wondering why the reconstruction loss is lower on the validation set, this is because Dropout is turned off and BatchNorm uses its running statistics during evaluation, producing a cleaner and more stable forward pass. The raw KL loss can also be lower during validation because the encoder produces slightly different latent distribution parameters when these regularization layers are disabled. However, the total validation loss is higher because our validation β is fixed at a larger value than the early training β, placing much greater weight on the KL term.
 
 For meaningful results, I recommend training for **at least 50–100 epochs**.
 The current implementation is fully functional and ready for longer runs on more powerful hardware.
 
-*Sample reconstructions and generated images from the 1‑epoch run are available in the `outputs/samples/` folder or see below.*
+*Sample reconstructions and generated images from the 1‑epoch to 3-epoch run are available in the `outputs/samples/` folder or see below.*
 
 <p align="center">
   <img src="./outputs/samples/recon_epoch_001.png" width="900" alt="Images from the 1‑epoch run">
 </p>
 
+<p align="center">
+  <img src="./outputs/samples/recon_epoch_002.png" width="900" alt="Images from the 2‑epoch run">
+</p>
+
+<p align="center">
+  <img src="./outputs/samples/recon_epoch_003.png" width="900" alt="Images from the 3‑epoch run">
+</p>
 ---
 
 ## 🧠 Model Architecture
@@ -266,6 +279,7 @@ The current implementation is fully functional and ready for longer runs on more
 
 ## 🚨 Note!
 The best_model.pt in ./checkpoints is not the best, it is the 1-epoch model!
+The best_model.pt is from before changes(I deleted new model weights by accident) so it is not reliable and should not use that!
 You have to train that for more epochs for realistic image generation.
 
 ---
